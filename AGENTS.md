@@ -2,6 +2,12 @@
 
 The global Git, commit, PR, C++ header, exception, and documentation policies apply. This file only records Canary-specific gates.
 
+## Documentation Gate
+
+- At the start of every repository task, read `docs/README.md` as the documentation map before planning, reviewing, or modifying code, configuration, builds, deployment, or operations.
+- Then read every guide relevant to the affected subsystem or workflow. Use `docs/architecture.md` for system design, `docs/development.md` for implementation and testing, `docs/operations.md` for deployment and administration, and the nearest topic-specific document or `README.md` under `docs/`.
+- Topic-specific documentation gates in this file are cumulative, not alternatives to this initial documentation review. Do not read unrelated documentation solely to satisfy this gate.
+
 ## Recurring Defect Prevention
 
 - For a reusable defect, inspect analogous paths by behavior and ownership, fix confirmed siblings atomically, and keep the audit proportional; do not turn a one-off into a speculative refactor.
