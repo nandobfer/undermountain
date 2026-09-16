@@ -79,6 +79,21 @@ function Set-EnvValue {
 	[System.IO.File]::WriteAllText((Resolve-Path -LiteralPath $Path), (($lines -join "`n") + "`n"), [System.Text.UTF8Encoding]::new($false))
 }
 
+function Get-LuaStringValue {
+	param(
+		[string]$Path,
+		[string]$Name
+	)
+
+	$pattern = "^\s*$([regex]::Escape($Name))\s*=\s*[`"']([^`"']*)[`"']"
+	foreach ($line in Get-Content -LiteralPath $Path) {
+		if ($line -match $pattern) {
+			return $Matches[1]
+		}
+	}
+	return $null
+}
+
 function Get-PrimaryLanIPv4 {
 	$defaultRoute = Get-NetRoute -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue |
 		Where-Object { $_.NextHop -and $_.NextHop -ne "0.0.0.0" } |
@@ -124,6 +139,27 @@ if (-not (Test-Path -LiteralPath ".env")) {
 	Copy-Item -LiteralPath ".env.dist" -Destination ".env"
 	Write-Host "Created docker/.env from docker/.env.dist."
 }
+
+$canaryConfigPath = Join-Path $PSScriptRoot "..\config.lua"
+$canaryConfigDistPath = Join-Path $PSScriptRoot "..\config.lua.dist"
+if (-not (Test-Path -LiteralPath $canaryConfigPath)) {
+	if (-not (Test-Path -LiteralPath $canaryConfigDistPath)) {
+		Stop-WithMessage "Missing config.lua.dist. Run this script from the docker directory in a complete Canary checkout."
+	}
+	Copy-Item -LiteralPath $canaryConfigDistPath -Destination $canaryConfigPath
+	Write-Host "Created config.lua from config.lua.dist."
+}
+
+$serverName = Get-LuaStringValue -Path $canaryConfigPath -Name "serverName"
+$dataPack = Get-LuaStringValue -Path $canaryConfigPath -Name "dataPackDirectory"
+if (-not $serverName) {
+	Stop-WithMessage "serverName was not found in config.lua."
+}
+if (-not $dataPack) {
+	Stop-WithMessage "dataPackDirectory was not found in config.lua."
+}
+Set-EnvValue -Path ".env" -Name "CANARY_SERVER_NAME" -Value $serverName
+Set-EnvValue -Path ".env" -Name "CANARY_DATA_PACK" -Value $dataPack
 
 if ($Lan) {
 	$lanIp = Get-PrimaryLanIPv4

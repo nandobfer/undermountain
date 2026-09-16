@@ -25,6 +25,12 @@ if [ ! -f .env ]; then
 	printf '%s\n' "Created docker/.env from docker/.env.dist."
 fi
 
+if [ ! -f ../config.lua ]; then
+	[ -f ../config.lua.dist ] || fail "Missing config.lua.dist. Run this script from the docker directory in a complete Canary checkout."
+	cp ../config.lua.dist ../config.lua
+	printf '%s\n' "Created config.lua from config.lua.dist."
+fi
+
 env_value() {
 	key="$1"
 	default="$2"
@@ -56,6 +62,18 @@ set_env_value() {
 	' .env > "$tmp_file"
 	mv "$tmp_file" .env
 }
+
+lua_string_value() {
+	key="$1"
+	sed -nE "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*[\"']([^\"']*)[\"'].*$/\\1/p" ../config.lua | head -n 1
+}
+
+server_name="$(lua_string_value serverName)"
+data_pack="$(lua_string_value dataPackDirectory)"
+[ -n "$server_name" ] || fail "serverName was not found in config.lua."
+[ -n "$data_pack" ] || fail "dataPackDirectory was not found in config.lua."
+set_env_value CANARY_SERVER_NAME "$server_name"
+set_env_value CANARY_DATA_PACK "$data_pack"
 
 is_wsl() {
 	[ -n "${WSL_INTEROP:-}" ] || grep -qiE "microsoft|wsl" /proc/version 2>/dev/null
@@ -145,4 +163,6 @@ if [ "$skip_cleanup" != "true" ]; then
 	fi
 fi
 
-docker system df
+if ! docker system df; then
+	printf '%s\n' "Docker disk usage could not be calculated; the quickstart is still running." >&2
+fi

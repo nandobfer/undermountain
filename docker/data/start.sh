@@ -16,6 +16,10 @@ CANARY_STATUS_TIMEOUT="${CANARY_STATUS_TIMEOUT:-5000}"
 CANARY_TEST_ACCOUNTS="${CANARY_TEST_ACCOUNTS:-false}"
 CANARY_DATA_PACK="${CANARY_DATA_PACK:-data-otservbr-global}"
 CANARY_MAP_URL="${CANARY_MAP_URL:-https://github.com/opentibiabr/canary/releases/download/v3.6.1/otservbr.otbm}"
+CANARY_MAP_NAME="otservbr"
+CANARY_DOWNLOAD_MAP="true"
+CANARY_CONFIG_PATH="${CANARY_CONFIG_PATH:-}"
+CANARY_CONFIG_FROM_HOST="false"
 
 validate_identifier() {
 	local name="$1"
@@ -37,6 +41,16 @@ require_uint() {
 
 escape_lua_string() {
 	printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+get_lua_string() {
+	local key="$1"
+	sed -nE "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*[\"']([^\"']*)[\"'].*$/\\1/p" config.lua | head -n 1
+}
+
+get_lua_boolean() {
+	local key="$1"
+	sed -nE "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*(true|false).*$/\\1/p" config.lua | head -n 1
 }
 
 set_lua_line() {
@@ -84,6 +98,25 @@ mysql_cmd() {
 		"$@"
 }
 
+if [ -n "$CANARY_CONFIG_PATH" ]; then
+	if [ ! -f "$CANARY_CONFIG_PATH" ]; then
+		echo "Canary host config not found: $CANARY_CONFIG_PATH" >&2
+		exit 1
+	fi
+
+	cp "$CANARY_CONFIG_PATH" config.lua
+	CANARY_CONFIG_FROM_HOST="true"
+	CANARY_DATA_PACK="$(get_lua_string "dataPackDirectory")"
+	CANARY_MAP_URL="$(get_lua_string "mapDownloadUrl")"
+	CANARY_MAP_NAME="$(get_lua_string "mapName")"
+	CANARY_DOWNLOAD_MAP="$(get_lua_boolean "toggleDownloadMap")"
+
+	if [ -z "$CANARY_DATA_PACK" ] || [ -z "$CANARY_MAP_NAME" ] || [ -z "$CANARY_DOWNLOAD_MAP" ]; then
+		echo "Host config must define dataPackDirectory, mapName, and toggleDownloadMap" >&2
+		exit 1
+	fi
+fi
+
 mysqldump_cmd() {
 	MYSQL_PWD="$CANARY_DB_PASSWORD" mysqldump \
 		--protocol=tcp \
@@ -95,6 +128,8 @@ mysqldump_cmd() {
 }
 
 validate_identifier "CANARY_DB_NAME" "$CANARY_DB_NAME"
+validate_identifier "dataPackDirectory" "$CANARY_DATA_PACK"
+validate_identifier "mapName" "$CANARY_MAP_NAME"
 require_uint "CANARY_DB_PORT" "$CANARY_DB_PORT"
 require_uint "CANARY_LOGIN_PORT" "$CANARY_LOGIN_PORT"
 require_uint "CANARY_GAME_PORT" "$CANARY_GAME_PORT"
@@ -120,19 +155,28 @@ echo "CANARY_LEGACY_860_GAME_PORT:[$CANARY_LEGACY_860_GAME_PORT]"
 echo "CANARY_STATUS_PORT:[$CANARY_STATUS_PORT]"
 echo "CANARY_STATUS_TIMEOUT:[$CANARY_STATUS_TIMEOUT]"
 echo "CANARY_TEST_ACCOUNTS:[$CANARY_TEST_ACCOUNTS]"
+echo "CANARY_CONFIG_PATH:[$CANARY_CONFIG_PATH]"
 echo "CANARY_DATA_PACK:[$CANARY_DATA_PACK]"
+echo "CANARY_MAP_NAME:[$CANARY_MAP_NAME]"
+echo "CANARY_DOWNLOAD_MAP:[$CANARY_DOWNLOAD_MAP]"
 echo "CANARY_MAP_URL:[$CANARY_MAP_URL]"
 echo ""
 echo "======================================="
 echo ""
 
 echo ""
-echo "===== OTBR Global Data Pack ====="
+echo "===== Ensure Configured Map ====="
 echo ""
 
-if [ "$CANARY_DATA_PACK" = "data-otservbr-global" ] && [ ! -f data-otservbr-global/world/otservbr.otbm ]; then
-	echo "Downloading OTBR map..."
-	tmp_map="data-otservbr-global/world/otservbr.otbm.tmp"
+map_path="${CANARY_DATA_PACK}/world/${CANARY_MAP_NAME}.otbm"
+if [ "$CANARY_DOWNLOAD_MAP" = "true" ] && [ ! -f "$map_path" ]; then
+	if [ -z "$CANARY_MAP_URL" ]; then
+		echo "Map download is enabled but mapDownloadUrl is empty" >&2
+		exit 1
+	fi
+
+	echo "Downloading ${CANARY_MAP_NAME}.otbm..."
+	tmp_map="${map_path}.tmp"
 	rm -f "$tmp_map"
 	if ! curl --fail --show-error --location \
 		--connect-timeout 5 --max-time 180 \
@@ -140,7 +184,7 @@ if [ "$CANARY_DATA_PACK" = "data-otservbr-global" ] && [ ! -f data-otservbr-glob
 		rm -f "$tmp_map"
 		exit 1
 	fi
-	mv "$tmp_map" data-otservbr-global/world/otservbr.otbm
+	mv "$tmp_map" "$map_path"
 	echo "Done"
 else
 	echo "Map download skipped"
@@ -239,7 +283,6 @@ set_lua_string "mysqlUser" "$CANARY_DB_USER"
 set_lua_string "mysqlPass" "$CANARY_DB_PASSWORD"
 set_lua_number "mysqlPort" "$CANARY_DB_PORT"
 set_lua_string "mysqlDatabase" "$CANARY_DB_NAME"
-set_lua_string "serverName" "$CANARY_SERVER_NAME"
 set_lua_string "ip" "$CANARY_SERVER_IP"
 set_lua_number "loginProtocolPort" "$CANARY_LOGIN_PORT"
 set_lua_number "gameProtocolPort" "$CANARY_GAME_PORT"
@@ -247,8 +290,12 @@ set_lua_number "legacy1100GameProtocolPort" "$CANARY_LEGACY_1100_GAME_PORT"
 set_lua_number "legacy860GameProtocolPort" "$CANARY_LEGACY_860_GAME_PORT"
 set_lua_number "statusProtocolPort" "$CANARY_STATUS_PORT"
 set_lua_number "statusTimeout" "$CANARY_STATUS_TIMEOUT"
-set_lua_string "dataPackDirectory" "$CANARY_DATA_PACK"
-set_lua_string "mapDownloadUrl" "$CANARY_MAP_URL"
+
+if [ "$CANARY_CONFIG_FROM_HOST" != "true" ]; then
+	set_lua_string "serverName" "$CANARY_SERVER_NAME"
+	set_lua_string "dataPackDirectory" "$CANARY_DATA_PACK"
+	set_lua_string "mapDownloadUrl" "$CANARY_MAP_URL"
+fi
 
 echo "config.lua updated"
 

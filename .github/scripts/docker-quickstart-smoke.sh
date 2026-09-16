@@ -4,11 +4,14 @@ set -euo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 DOCKER_DIR="${REPO_ROOT}/docker"
 ENV_FILE="${DOCKER_DIR}/.env"
+CONFIG_FILE="$(mktemp)"
 
 export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-otbr-smoke}"
 
 cd "${DOCKER_DIR}"
 cp .env.dist "${ENV_FILE}"
+cp "${REPO_ROOT}/config.lua.dist" "${CONFIG_FILE}"
+export CANARY_CONFIG_FILE="${CONFIG_FILE}"
 
 if [[ -n "${CANARY_IMAGE:-}" ]]; then
 	sed -i "s|^CANARY_IMAGE=.*|CANARY_IMAGE=${CANARY_IMAGE}|" "${ENV_FILE}"
@@ -32,6 +35,7 @@ dump_debug() {
 
 cleanup() {
 	"${COMPOSE[@]}" down -v --remove-orphans || true
+	rm -f "${CONFIG_FILE}"
 }
 
 on_exit() {

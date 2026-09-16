@@ -41,6 +41,7 @@ Run these commands from the `docker` directory:
 
 ```bash
 cp .env.dist .env
+test -f ../config.lua || cp ../config.lua.dist ../config.lua
 docker compose up -d --build
 ```
 
@@ -73,6 +74,14 @@ cleanup. They remove stopped containers and dangling images that belong to this
 Compose project, then remove unused Docker build cache older than seven days.
 They do not remove Docker volumes, so the MariaDB database and Canary runtime
 data are preserved.
+
+The scripts also create the repository-root `config.lua` from `config.lua.dist`
+when it is missing. Compose mounts that host file read-only, and the server
+bootstrap copies it into the container on every start. Changes to `config.lua`
+therefore take effect after the server container is restarted without rebuilding
+the Canary image. The scripts synchronize `serverName` and `dataPackDirectory`
+to `docker/.env` so MyAAC and login-server advertise the same server identity and
+datapack metadata.
 
 Docker build cache is Docker-wide, so the start scripts only prune cache older
 than seven days. This keeps cleanup data-safe while avoiding aggressive cache
@@ -189,6 +198,20 @@ Do not add new public Canary settings using `MYSQL_*`, `OT_*`, or raw Lua config
 variable names. The compose file translates `CANARY_*` into the variables needed
 by MariaDB, MyAAC, and login-server.
 
+### Host Canary Configuration
+
+The repository-root `config.lua` is the source of truth for Canary runtime and
+gameplay settings, including `dataPackDirectory`, `mapName`,
+`toggleDownloadMap`, and `mapDownloadUrl`. The Compose stack mounts it at
+`/host-config/config.lua` as read-only. The bootstrap copies it to the writable
+runtime path before starting Canary, so the host file is never rewritten.
+
+Docker still overrides the database connection, advertised server IP, and
+protocol ports in the runtime copy because those values connect Canary to the
+other Compose services and published host ports. `CANARY_CONFIG_FILE` can point
+to a different host file; relative paths are resolved from the `docker`
+directory.
+
 ### Database
 
 ```env
@@ -237,12 +260,18 @@ the Docker service name.
 ```env
 CANARY_TEST_ACCOUNTS=true
 CANARY_DATA_PACK=data-otservbr-global
-CANARY_MAP_URL=https://github.com/opentibiabr/canary/releases/download/v3.6.1/otservbr.otbm
 ```
 
-The Docker image intentionally does not embed the large `.otbm` map file. On the
-first run with `CANARY_DATA_PACK=data-otservbr-global`, the entrypoint downloads
-the map from `CANARY_MAP_URL` if it is missing.
+`CANARY_DATA_PACK` supplies matching datapack metadata to MyAAC. Keep it equal
+to `dataPackDirectory` in `config.lua`; the guarded start scripts synchronize it
+automatically. Canary itself reads the datapack and map settings from
+`config.lua`.
+
+The Docker image intentionally does not embed the large global `.otbm` map file.
+When map downloading is enabled in `config.lua`, the bootstrap downloads the
+configured `mapDownloadUrl` to the configured datapack and `mapName` if the map
+is missing. The lightweight `data-canary/world/canary.otbm` map is already
+included in the image and needs no download.
 
 When `CANARY_TEST_ACCOUNTS=true`, the container imports:
 

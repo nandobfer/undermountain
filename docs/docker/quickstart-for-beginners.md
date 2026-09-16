@@ -54,8 +54,12 @@ On Linux or macOS:
 sh ./up.sh
 ```
 
-The script creates `docker/.env` from `docker/.env.dist` if it does not already
-exist. It also performs safe Docker cleanup without deleting database volumes.
+The script creates `docker/.env` from `docker/.env.dist` and the repository-root
+`config.lua` from `config.lua.dist` when either file is missing. Compose mounts
+`config.lua` read-only and copies it into the server container on each start, so
+map, datapack, and gameplay changes take effect after restarting the server
+container. The script also performs safe Docker cleanup without deleting
+database volumes.
 
 Open the website:
 
