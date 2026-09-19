@@ -28,15 +28,32 @@ jobs:
           name: canary-docker-image
           path: artifacts/docker-image
 
-      - name: Run Docker quickstart smoke (PR image)
+      - name: Run Docker quickstart dev smoke (PR image)
         if: github.event_name != 'push' || github.ref != 'refs/heads/main'
         env:
           CANARY_IMAGE: ghcr.io/${{ github.repository }}:pr
           CANARY_IMAGE_TAR: artifacts/docker-image/canary-pr.tar
+          CANARY_PROFILE: dev
         run: bash .github/scripts/docker-quickstart-smoke.sh
 
-      - name: Run Docker quickstart smoke (latest image)
+      - name: Run Docker quickstart prod smoke (PR image)
+        if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+        env:
+          CANARY_IMAGE: ghcr.io/${{ github.repository }}:pr
+          CANARY_IMAGE_TAR: artifacts/docker-image/canary-pr.tar
+          CANARY_PROFILE: prod
+        run: bash .github/scripts/docker-quickstart-smoke.sh
+
+      - name: Run Docker quickstart dev smoke (latest image)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           CANARY_IMAGE: ghcr.io/opentibiabr/canary:latest
+          CANARY_PROFILE: dev
+        run: bash .github/scripts/docker-quickstart-smoke.sh
+
+      - name: Run Docker quickstart prod smoke (latest image)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          CANARY_IMAGE: ghcr.io/opentibiabr/canary:latest
+          CANARY_PROFILE: prod
         run: bash .github/scripts/docker-quickstart-smoke.sh

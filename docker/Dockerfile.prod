@@ -1,0 +1,16 @@
+# syntax=docker/dockerfile:1.7
+
+ARG CANARY_ENGINE_IMAGE=ghcr.io/opentibiabr/canary:latest
+FROM ${CANARY_ENGINE_IMAGE}
+
+RUN rm -rf /canary/data /canary/data-canary /canary/data-otservbr-global
+
+COPY config.lua.dist /canary/config.lua
+COPY data /canary/data
+COPY data-canary /canary/data-canary
+COPY key.pem schema.sql /canary/
+COPY docker/data/01-test_account.sql docker/data/02-test_account_players.sql /canary/
+COPY --chmod=755 docker/data/start.sh /canary/start.sh
+
+WORKDIR /canary
+ENTRYPOINT ["/canary/start.sh"]

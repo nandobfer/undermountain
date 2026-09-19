@@ -7,6 +7,24 @@ ENV_FILE="${DOCKER_DIR}/.env"
 CONFIG_FILE="$(mktemp)"
 
 export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-otbr-smoke}"
+CANARY_PROFILE="${CANARY_PROFILE:-dev}"
+CANARY_BUILDER="${CANARY_BUILDER:-default}"
+export COMPOSE_PROFILES="${CANARY_PROFILE}"
+
+case "${CANARY_PROFILE}" in
+	dev)
+		SERVER_SERVICE="server"
+		MYAAC_SERVICE="myaac"
+		;;
+	prod)
+		SERVER_SERVICE="server-prod"
+		MYAAC_SERVICE="myaac-prod"
+		;;
+	*)
+		echo "Unsupported CANARY_PROFILE: ${CANARY_PROFILE}" >&2
+		exit 1
+		;;
+esac
 
 cd "${DOCKER_DIR}"
 cp .env.dist "${ENV_FILE}"
@@ -21,7 +39,7 @@ if [[ -n "${CANARY_IMAGE_TAR:-}" ]]; then
 	docker load --input "${REPO_ROOT}/${CANARY_IMAGE_TAR}"
 fi
 
-COMPOSE=(docker compose --env-file "${ENV_FILE}")
+COMPOSE=(docker compose --profile "${CANARY_PROFILE}" --env-file "${ENV_FILE}")
 
 dump_debug() {
 	echo "::group::Docker compose status"
@@ -29,7 +47,7 @@ dump_debug() {
 	echo "::endgroup::"
 
 	echo "::group::Docker compose logs"
-	"${COMPOSE[@]}" logs --no-color db server myaac login-server || true
+	"${COMPOSE[@]}" logs --no-color db "${SERVER_SERVICE}" "${MYAAC_SERVICE}" login-server || true
 	echo "::endgroup::"
 }
 
@@ -87,7 +105,7 @@ wait_for_login_server() {
 		status="$(
 			curl -sS -o "${response_file}" -w "%{http_code}" \
 				-H "Content-Type: application/json" \
-				-d '{"email":"@test1","password":"test","type":"login","clientversion":"1501"}' \
+				-d '{"email":"@test1","password":"test","type":"login","clientversion":"1525"}' \
 				http://localhost:8088/login || true
 		)"
 
@@ -109,29 +127,74 @@ wait_for_login_server() {
 	return 1
 }
 
+wait_for_server_online() {
+	for attempt in $(seq 1 120); do
+		if "${COMPOSE[@]}" logs --no-color "${SERVER_SERVICE}" 2>/dev/null | grep -q "Undermountain server online"; then
+			echo "${SERVER_SERVICE} is online"
+			return 0
+		fi
+
+		echo "Waiting for ${SERVER_SERVICE} (attempt ${attempt}/120)"
+		sleep 5
+	done
+
+	echo "${SERVER_SERVICE} did not become online" >&2
+	return 1
+}
+
 trap on_exit EXIT
 
 cleanup
 
 "${COMPOSE[@]}" config >/tmp/canary-docker-compose.yml
-if [[ -n "${CANARY_IMAGE_TAR:-}" ]]; then
+if [[ -n "${CANARY_IMAGE_TAR:-}" || "${CANARY_PROFILE}" == "prod" ]]; then
 	"${COMPOSE[@]}" pull db login-server
 else
 	"${COMPOSE[@]}" pull db server login-server
 fi
-"${COMPOSE[@]}" up -d --build
+docker buildx inspect "${CANARY_BUILDER}" >/dev/null
+"${COMPOSE[@]}" build --builder "${CANARY_BUILDER}"
+"${COMPOSE[@]}" up -d --no-build
 
+wait_for_server_online
 wait_for_http_status "MyAAC home" "http://localhost:8080/" "200"
 wait_for_http_status "MyAAC login.php" "http://localhost:8080/login.php" "404"
 
-"${COMPOSE[@]}" exec -T myaac test ! -f /var/www/html/login.php
+"${COMPOSE[@]}" exec -T "${MYAAC_SERVICE}" test ! -f /var/www/html/login.php
 
-"${COMPOSE[@]}" exec -T server sh -lc '
+"${COMPOSE[@]}" exec -T "${SERVER_SERVICE}" sh -lc '
 	grep -q "mysqlHost = \"db\"" config.lua &&
 	grep -q "mysqlDatabase = \"canary\"" config.lua &&
 	grep -q "loginProtocolPort = 7171" config.lua &&
 	grep -q "gameProtocolPort = 7172" config.lua &&
-	grep -q "statusProtocolPort = 7173" config.lua
+	grep -q "statusProtocolPort = 7173" config.lua &&
+	grep -q "dataPackDirectory = \"data-canary\"" config.lua &&
+	grep -q "toggleDownloadMap = false" config.lua &&
+	test -f data-canary/world/canary.otbm
 '
+
+mounts="$(docker inspect --format '{{range .Mounts}}{{printf "%s %s %t\n" .Destination .Type .RW}}{{end}}' "$("${COMPOSE[@]}" ps -q "${SERVER_SERVICE}")")"
+if [[ "${CANARY_PROFILE}" == "dev" ]]; then
+	grep -q '^/canary/data bind false$' <<<"${mounts}"
+	grep -q '^/canary/data-canary bind false$' <<<"${mounts}"
+	grep -q '^/host-config/config.lua bind false$' <<<"${mounts}"
+	"${COMPOSE[@]}" exec -T "${SERVER_SERVICE}" sh -lc '
+		if touch data/.mount-write-test 2>/dev/null; then
+			rm -f data/.mount-write-test
+			exit 1
+		fi
+		if touch data-canary/.mount-write-test 2>/dev/null; then
+			rm -f data-canary/.mount-write-test
+			exit 1
+		fi
+	'
+else
+	if grep -q ' bind ' <<<"${mounts}"; then
+		echo "Production server unexpectedly contains a bind mount" >&2
+		printf '%s\n' "${mounts}" >&2
+		exit 1
+	fi
+	"${COMPOSE[@]}" exec -T "${SERVER_SERVICE}" test ! -e /canary/data-otservbr-global
+fi
 
 wait_for_login_server

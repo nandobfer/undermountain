@@ -31,6 +31,11 @@ Canary follows a few important principles:
 5. Keep systems modular and testable.
 6. Avoid introducing unnecessary dependencies.
 
+Undermountain contributors must also follow the
+[Undermountain Architecture and Stack Decision](undermountain-architecture-and-stack.md),
+especially its compiled-engine, mounted-content, authentication, and web-service
+boundaries.
+
 ---
 
 # Development Environment
@@ -95,12 +100,21 @@ Start the stack:
 
 ```bash
 cd docker
-cp .env.dist .env
-docker compose up -d --build
+sh ./up.sh
 ```
 
-This pulls the published Canary runtime image and builds the MyAAC quickstart
-image. It does not compile Canary locally.
+The launcher selects the `dev` profile, mounts `config.lua`, `data/`, and
+`data-canary/` read-only, and routes Docker builds through the resource-limited
+builder configured by `CANARY_BUILDER`. It does not compile Canary locally.
+
+After changing Lua, XML, configuration, or the map, restart only Canary:
+
+```bash
+docker compose --profile dev restart server
+```
+
+Release content is packaged with `sh ./up.sh --prod`. That lightweight image
+build does not compile C++; native changes require a new engine image first.
 
 Default endpoints:
 
@@ -371,6 +385,11 @@ generateLuaApiDocs = true
 ---
 
 # Adding New Features
+
+For Undermountain work, first identify the owning component in the
+[architecture decision](undermountain-architecture-and-stack.md). Gameplay
+content belongs in the mounted Lua/datapack boundary unless a verified engine or
+protocol limitation requires C++.
 
 ## Prefer Lua First
 

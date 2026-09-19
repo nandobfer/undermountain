@@ -9,11 +9,28 @@ no_build="${NO_BUILD:-false}"
 skip_cleanup="${SKIP_CLEANUP:-false}"
 cleanup_until="${CLEANUP_UNTIL:-168h}"
 lan="${LAN:-false}"
+profile="dev"
 
 fail() {
 	printf '%s\n' "$1" >&2
 	exit 1
 }
+
+for arg in "$@"; do
+	case "$arg" in
+	--prod)
+		profile="prod"
+		;;
+	--dev)
+		profile="dev"
+		;;
+	*)
+		fail "Unknown option: $arg. Use --dev or --prod."
+		;;
+	esac
+done
+
+export COMPOSE_PROFILES="$profile"
 
 command -v docker >/dev/null 2>&1 || fail "Docker was not found. Install Docker, start it, then run this script again: https://docs.docker.com/get-started/get-docker/"
 docker info >/dev/null 2>&1 || fail "Docker is installed but the daemon is not running. Start Docker Desktop or the Docker service, then run this script again."
@@ -25,10 +42,17 @@ if [ ! -f .env ]; then
 	printf '%s\n' "Created docker/.env from docker/.env.dist."
 fi
 
-if [ ! -f ../config.lua ]; then
-	[ -f ../config.lua.dist ] || fail "Missing config.lua.dist. Run this script from the docker directory in a complete Canary checkout."
-	cp ../config.lua.dist ../config.lua
-	printf '%s\n' "Created config.lua from config.lua.dist."
+if [ "$profile" = "prod" ]; then
+	[ "$lan" != "true" ] || fail "LAN auto-configuration is available only with the dev profile."
+	canary_config_path="../config.lua.dist"
+	[ -f "$canary_config_path" ] || fail "Missing config.lua.dist. Run this script from the docker directory in a complete Canary checkout."
+else
+	if [ ! -f ../config.lua ]; then
+		[ -f ../config.lua.dist ] || fail "Missing config.lua.dist. Run this script from the docker directory in a complete Canary checkout."
+		cp ../config.lua.dist ../config.lua
+		printf '%s\n' "Created config.lua from config.lua.dist."
+	fi
+	canary_config_path="../config.lua"
 fi
 
 env_value() {
@@ -65,15 +89,16 @@ set_env_value() {
 
 lua_string_value() {
 	key="$1"
-	sed -nE "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*[\"']([^\"']*)[\"'].*$/\\1/p" ../config.lua | head -n 1
+	sed -nE "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*[\"']([^\"']*)[\"'].*$/\\1/p" "$canary_config_path" | head -n 1
 }
 
 server_name="$(lua_string_value serverName)"
 data_pack="$(lua_string_value dataPackDirectory)"
-[ -n "$server_name" ] || fail "serverName was not found in config.lua."
-[ -n "$data_pack" ] || fail "dataPackDirectory was not found in config.lua."
+[ -n "$server_name" ] || fail "serverName was not found in $canary_config_path."
+[ -n "$data_pack" ] || fail "dataPackDirectory was not found in $canary_config_path."
 set_env_value CANARY_SERVER_NAME "$server_name"
 set_env_value CANARY_DATA_PACK "$data_pack"
+builder="$(env_value CANARY_BUILDER limited-builder)"
 
 is_wsl() {
 	[ -n "${WSL_INTEROP:-}" ] || grep -qiE "microsoft|wsl" /proc/version 2>/dev/null
@@ -145,13 +170,18 @@ if [ "$lan" = "true" ]; then
 	printf '%s\n' "Configured docker/.env for LAN access at ${lan_ip}."
 fi
 
-compose_args="up -d --remove-orphans"
 if [ "$no_build" != "true" ]; then
-	compose_args="$compose_args --build"
+	docker buildx inspect "$builder" >/dev/null 2>&1 || fail "Docker buildx builder '$builder' is not available. Create or select the resource-limited builder before building."
+	docker compose --profile "$profile" build --builder "$builder"
 fi
 
-# shellcheck disable=SC2086
-docker compose $compose_args
+if [ "$profile" = "prod" ]; then
+	docker compose --profile dev stop server myaac >/dev/null 2>&1 || true
+else
+	docker compose --profile prod stop server-prod myaac-prod >/dev/null 2>&1 || true
+fi
+
+docker compose --profile "$profile" up -d --no-build --remove-orphans
 
 if [ "$skip_cleanup" != "true" ]; then
 	docker container prune --force --filter "label=com.docker.compose.project=${project_name}"

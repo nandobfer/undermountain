@@ -1,7 +1,8 @@
 # Canary Docker Quickstart
 
-This directory contains the lightweight Docker quickstart for Canary. It is meant
-for people who want to run a local test server without compiling Canary locally.
+This directory contains the Undermountain Docker stack. The `dev` profile uses a
+published engine image with read-only content mounts. The `prod` profile builds
+one immutable image containing the engine and tracked content snapshot.
 
 The quickstart currently starts:
 
@@ -14,11 +15,11 @@ The quickstart currently starts:
 MyAAC is used only as the website/AAC. The MyAAC login webservice file is
 removed from the quickstart image, so clients should use `login-server`.
 
-## Local Development Only
+## Security Scope
 
-This quickstart is for local development, testing, and LAN demos. Do not expose
-it directly to the public Internet or run it as a production deployment with the
-default settings.
+The default credentials are for local development, testing, and LAN demos. The
+`prod` profile changes content packaging, but does not make default passwords or
+published ports safe for the public Internet.
 
 Before using it outside a trusted local network:
 
@@ -27,25 +28,35 @@ Before using it outside a trusted local network:
 - Review firewall rules for the published TCP ports.
 - Pin image tags instead of relying on rolling `latest` tags.
 
+See the [Undermountain Architecture and Stack Decision](../docs/undermountain-architecture-and-stack.md)
+for the boundary between development mounts and the immutable production image.
+
 ## Requirements
 
 - Docker with Docker Compose v2
 - Network access to pull the published Canary image and build the MyAAC image
+- A buildx builder named by `CANARY_BUILDER`; local defaults use the
+  resource-limited `limited-builder`, configured with `default-load=true`
 
 For a step-by-step beginner guide, see
 [`docs/docker/quickstart-for-beginners.md`](../docs/docker/quickstart-for-beginners.md).
 
 ## Start The Server
 
-Run these commands from the `docker` directory:
+The guarded launchers use the `dev` profile by default:
 
 ```bash
-cp .env.dist .env
-test -f ../config.lua || cp ../config.lua.dist ../config.lua
-docker compose up -d --build
+sh ./up.sh
 ```
 
-On Windows PowerShell, you can use the guarded start script:
+`COMPOSE_PROFILES=dev` in `docker/.env` also makes the direct command start the
+complete development stack instead of only the shared database and login service:
+
+```bash
+docker compose up -d --no-build
+```
+
+On Windows PowerShell:
 
 ```powershell
 .\up.ps1
@@ -57,31 +68,47 @@ To configure `docker/.env` automatically for other PCs on your LAN:
 .\up.ps1 -Lan
 ```
 
-On Linux or macOS, you can use:
-
-```bash
-sh ./up.sh
-```
-
 To configure `docker/.env` automatically for other PCs on your LAN:
 
 ```bash
 LAN=true sh ./up.sh
 ```
 
-These scripts run Compose with `--remove-orphans` and then perform a safe
+These scripts build with `docker compose build --builder "$CANARY_BUILDER"`,
+then start with `--no-build`. This prevents Compose from bypassing the configured
+resource-limited builder. They also run Compose with `--remove-orphans` and a safe
 cleanup. They remove stopped containers and dangling images that belong to this
 Compose project, then remove unused Docker build cache older than seven days.
 They do not remove Docker volumes, so the MariaDB database and Canary runtime
 data are preserved.
 
-The scripts also create the repository-root `config.lua` from `config.lua.dist`
-when it is missing. Compose mounts that host file read-only, and the server
-bootstrap copies it into the container on every start. Changes to `config.lua`
-therefore take effect after the server container is restarted without rebuilding
-the Canary image. The scripts synchronize `serverName` and `dataPackDirectory`
-to `docker/.env` so MyAAC and login-server advertise the same server identity and
-datapack metadata.
+The development profile mounts `config.lua`, `data/`, and `data-canary/`
+read-only. Changes take effect after restarting `server`, without rebuilding the
+engine image. The scripts synchronize `serverName` and `dataPackDirectory` to
+`docker/.env` so MyAAC and login-server advertise matching metadata.
+
+## Production Profile
+
+Start an immutable production image on Linux or macOS:
+
+```bash
+sh ./up.sh --prod
+```
+
+On Windows PowerShell:
+
+```powershell
+.\up.ps1 -Prod
+```
+
+The `prod` profile builds `docker/Dockerfile.prod`. It packages
+`config.lua.dist`, `data/`, `data-canary/`, the database schema, RSA key, seed
+scripts, and bootstrap on top of `CANARY_IMAGE`. The resulting
+`CANARY_PROD_IMAGE` has no host bind mounts. A content-only build does not compile
+C++; a native change first requires a new engine image.
+
+The launchers override `COMPOSE_PROFILES` explicitly, so selecting `prod` does
+not also activate the default `dev` services and their conflicting ports.
 
 Docker build cache is Docker-wide, so the start scripts only prune cache older
 than seven days. This keeps cleanup data-safe while avoiding aggressive cache
@@ -90,21 +117,21 @@ removal that would make every rebuild slow.
 Watch the logs:
 
 ```bash
-docker compose logs -f server
-docker compose logs -f myaac
-docker compose logs -f login-server
+docker compose --profile dev logs -f server
+docker compose --profile dev logs -f myaac
+docker compose --profile dev logs -f login-server
 ```
 
 Stop the stack:
 
 ```bash
-docker compose down
+docker compose --profile dev down
 ```
 
 Remove persisted database and server data:
 
 ```bash
-docker compose down -v
+docker compose --profile dev down -v
 ```
 
 ## Safe Docker Cleanup
@@ -198,19 +225,18 @@ Do not add new public Canary settings using `MYSQL_*`, `OT_*`, or raw Lua config
 variable names. The compose file translates `CANARY_*` into the variables needed
 by MariaDB, MyAAC, and login-server.
 
-### Host Canary Configuration
+### Canary Configuration And Content
 
-The repository-root `config.lua` is the source of truth for Canary runtime and
-gameplay settings, including `dataPackDirectory`, `mapName`,
-`toggleDownloadMap`, and `mapDownloadUrl`. The Compose stack mounts it at
-`/host-config/config.lua` as read-only. The bootstrap copies it to the writable
-runtime path before starting Canary, so the host file is never rewritten.
+In `dev`, the repository-root `config.lua` is the runtime source of truth and is
+mounted with `data/` and `data-canary/` as read-only content. In `prod`, the
+tracked `config.lua.dist` and both content directories are baked into
+`CANARY_PROD_IMAGE`.
 
 Docker still overrides the database connection, advertised server IP, and
 protocol ports in the runtime copy because those values connect Canary to the
 other Compose services and published host ports. `CANARY_CONFIG_FILE` can point
 to a different host file; relative paths are resolved from the `docker`
-directory.
+directory in the development profile.
 
 ### Database
 
@@ -230,7 +256,9 @@ on port `3306` inside the Docker network.
 
 ```env
 CANARY_IMAGE=ghcr.io/opentibiabr/canary:latest
-CANARY_SERVER_NAME=OpenTibiaBR Canary
+CANARY_PROD_IMAGE=undermountain:prod
+CANARY_BUILDER=limited-builder
+CANARY_SERVER_NAME=Undermountain
 CANARY_SERVER_IP=127.0.0.1
 CANARY_SERVER_LOCATION=BRA
 CANARY_LOGIN_PORT=7171
@@ -241,10 +269,10 @@ CANARY_STATUS_PORT=7173
 CANARY_STATUS_TIMEOUT=5000
 ```
 
-`CANARY_IMAGE` defaults to the rolling `latest` tag for a convenient first-run
-experience. That tag can change over time. For reproducible support, demos, or
-shared environments, set `CANARY_IMAGE` to a specific published tag or digest
-when one is available.
+`CANARY_IMAGE` is the engine image used directly by `dev` and as the base for
+`prod`. `CANARY_PROD_IMAGE` names the final immutable artifact. Pin both to tags
+or digests for releases. `CANARY_BUILDER` selects the buildx builder used by the
+guarded launchers; local builds must use the resource-limited builder.
 
 The quickstart publishes `CANARY_LOGIN_PORT`, `CANARY_GAME_PORT`,
 `CANARY_LEGACY_1100_GAME_PORT`, `CANARY_LEGACY_860_GAME_PORT`, and
@@ -259,7 +287,7 @@ the Docker service name.
 
 ```env
 CANARY_TEST_ACCOUNTS=true
-CANARY_DATA_PACK=data-otservbr-global
+CANARY_DATA_PACK=data-canary
 ```
 
 `CANARY_DATA_PACK` supplies matching datapack metadata to MyAAC. Keep it equal
@@ -267,11 +295,11 @@ to `dataPackDirectory` in `config.lua`; the guarded start scripts synchronize it
 automatically. Canary itself reads the datapack and map settings from
 `config.lua`.
 
-The Docker image intentionally does not embed the large global `.otbm` map file.
-When map downloading is enabled in `config.lua`, the bootstrap downloads the
-configured `mapDownloadUrl` to the configured datapack and `mapName` if the map
-is missing. The lightweight `data-canary/world/canary.otbm` map is already
-included in the image and needs no download.
+Undermountain requires `dataPackDirectory = "data-canary"`,
+`toggleDownloadMap = false`, and a versioned `data-canary/world/canary.otbm`.
+Startup fails instead of downloading or modifying map content. The empty
+`data-canary/world/custom/` directory is versioned because Canary enumerates it
+during startup.
 
 When `CANARY_TEST_ACCOUNTS=true`, the container imports:
 
@@ -286,12 +314,13 @@ For a first login, use account `@test1` with password `test`.
 ```env
 MYAAC_HTTP_PORT=8080
 MYAAC_SITE_URL=http://localhost:8080
+MYAAC_IMAGE=otbr-myaac
 MYAAC_REF=2.x
 MYAAC_ADMIN_ACCOUNT=myaacadmin
 MYAAC_ADMIN_EMAIL=admin@localhost.local
 MYAAC_ADMIN_PASSWORD=admin123
 MYAAC_ADMIN_PLAYER=ADM1
-MYAAC_CLIENT_VERSION=1513
+MYAAC_CLIENT_VERSION=1525
 MYAAC_TIMEZONE=America/Fortaleza
 ```
 
@@ -300,8 +329,8 @@ MYAAC_TIMEZONE=America/Fortaleza
 a tag or another branch, change `MYAAC_REF` and rebuild:
 
 ```bash
-docker compose build --no-cache myaac
-docker compose up -d
+docker compose --profile dev build --builder limited-builder --no-cache myaac
+docker compose --profile dev up -d --no-build
 ```
 
 The MyAAC container waits until the Canary schema exists, writes its own
@@ -336,7 +365,7 @@ http://localhost:8088/login
 Docker volumes used by this quickstart:
 
 - `db-volume`: MariaDB data
-- `server-data`: Canary shared runtime data and backups
+- `server-data`: Canary database backups and writable runtime state
 
 MyAAC stores its persistent state in the shared Canary database. Its generated
 `config.local.php` is recreated from `.env` whenever the container starts.
@@ -351,20 +380,18 @@ database backup. With the default `CANARY_DB_NAME=canary`, the backup path is:
 That path is inside the `server-data` Docker volume.
 If `CANARY_DB_NAME` changes, the backup file name follows that database name.
 
-## Runtime Image
+## Runtime Images
 
-The quickstart uses:
+The `dev` profile runs `CANARY_IMAGE` with content binds. The `prod` profile
+builds `CANARY_PROD_IMAGE` from `docker/Dockerfile.prod`, using `CANARY_IMAGE` as
+its engine base. A C++ change must first produce a new engine image through the
+maintained native Docker build; a content-only production release rebuilds only
+the packaging image.
 
-```yaml
-image: ghcr.io/opentibiabr/canary:latest
-```
-
-This keeps the Canary service lightweight for users. Local Canary compilation
-should live in a separate development compose file that uses
-`docker/Dockerfile.dev` and the required vcpkg cache credentials.
-
-Use `CANARY_IMAGE` only when testing another published or locally loaded Canary
-runtime image. The default quickstart should stay on the official image.
+Local launchers require `CANARY_BUILDER=limited-builder` and split build from
+startup so `docker compose up` cannot silently use an unrestricted builder.
+Release deployments should pull an immutable `CANARY_PROD_IMAGE` tag and start
+with `--no-build`.
 
 The MyAAC image is built locally from `slawkens/myaac` because the quickstart
 tracks `MYAAC_REF=2.x` by default. This build installs PHP dependencies with
@@ -377,10 +404,9 @@ validates the user-facing quickstart with the Docker image produced by the same
 CI run whenever the Compose file, quickstart MyAAC image, seed SQL files, or the
 smoke workflow changes.
 
-The smoke test starts the stack from a clean database, checks that MyAAC answers
-on `http://localhost:8080`, verifies that MyAAC's `login.php` webservice is not
-present, and confirms that `opentibiabr/login-server` can return the seeded test
-account through `http://localhost:8088/login`.
+The smoke test runs both profiles from clean databases. It verifies read-only
+binds in `dev`, verifies no bind mounts and embedded content in `prod`, checks
+MyAAC, and confirms that `opentibiabr/login-server` returns the seeded account.
 
 ## Troubleshooting
 
@@ -390,20 +416,21 @@ If the client receives the character list but cannot enter the game, check:
 - `CANARY_GAME_PORT` is open on the host.
 - For 11.00 clients, `CANARY_LEGACY_1100_GAME_PORT` is open on the host.
 - For 8.60 clients, `CANARY_LEGACY_860_GAME_PORT` is open on the host.
-- The `server` container is running: `docker compose ps`.
-- The `login-server` container is running: `docker compose ps login-server`.
-- The MyAAC container is running: `docker compose ps myaac`.
+- The selected Canary service is running: `docker compose --profile dev ps` or
+  `docker compose --profile prod ps`.
+- The `login-server` container is running in the selected profile.
+- The matching `myaac` or `myaac-prod` container is running.
 - The server log does not show database connection errors:
 
 ```bash
-docker compose logs server
-docker compose logs myaac
-docker compose logs login-server
+docker compose --profile dev logs server
+docker compose --profile dev logs myaac
+docker compose --profile dev logs login-server
 ```
 
 If the server waits for the database, check:
 
 ```bash
-docker compose logs db
-docker compose ps
+docker compose --profile dev logs db
+docker compose --profile dev ps
 ```

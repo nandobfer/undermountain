@@ -1,5 +1,7 @@
 # Git and editor metadata
 .git
+.codegraph
+.cortexkit
 .github
 .vs
 .vscode
@@ -32,6 +34,5 @@ logs/
 config.lua
 apply.patch
 
-# Keep the runtime image lighter. The entrypoint downloads this map on first run
-# through CANARY_MAP_URL when data-otservbr-global is selected.
+# The Undermountain runtime uses the versioned data-canary map.
 data-otservbr-global/world/otservbr.otbm

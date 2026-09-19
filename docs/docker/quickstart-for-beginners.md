@@ -1,7 +1,7 @@
 # Docker Quickstart For Beginners
 
-This guide starts a local Canary test server with Docker. It does not compile
-Canary on your machine.
+This guide starts the `dev` profile with Docker. It uses a prebuilt Canary engine
+and does not compile C++ on your machine.
 
 The stack starts:
 
@@ -21,8 +21,9 @@ https://docs.docker.com/get-started/get-docker/
 After installing Docker, start Docker Desktop or the Docker service before
 running any commands below.
 
-You also need internet access on the first start. Docker must download images,
-MyAAC source files, and the OTServBR global map.
+You also need internet access on the first start. Docker must download images and
+the MyAAC source files. The Undermountain map is already versioned in this
+repository.
 
 ## Local Use Only
 
@@ -55,11 +56,14 @@ sh ./up.sh
 ```
 
 The script creates `docker/.env` from `docker/.env.dist` and the repository-root
-`config.lua` from `config.lua.dist` when either file is missing. Compose mounts
-`config.lua` read-only and copies it into the server container on each start, so
-map, datapack, and gameplay changes take effect after restarting the server
-container. The script also performs safe Docker cleanup without deleting
-database volumes.
+`config.lua` from `config.lua.dist` when either file is missing. The `dev` profile
+mounts `config.lua`, `data/`, and `data-canary/` read-only. Map, datapack, and Lua
+changes take effect after restarting the server container. Every Docker build is
+routed through the resource-limited builder configured by `CANARY_BUILDER`.
+
+The generated `.env` sets `COMPOSE_PROFILES=dev`, so a direct
+`docker compose up` also starts Canary and MyAAC instead of only MariaDB and the
+login-server.
 
 Open the website:
 
@@ -121,37 +125,37 @@ Replace `LAN_IP` with the address configured by the script, for example
 Show running services:
 
 ```bash
-docker compose ps
+docker compose --profile dev ps
 ```
 
 Watch server logs:
 
 ```bash
-docker compose logs -f server
+docker compose --profile dev logs -f server
 ```
 
 Watch website logs:
 
 ```bash
-docker compose logs -f myaac
+docker compose --profile dev logs -f myaac
 ```
 
 Watch login-server logs:
 
 ```bash
-docker compose logs -f login-server
+docker compose --profile dev logs -f login-server
 ```
 
 Stop the stack without deleting data:
 
 ```bash
-docker compose down
+docker compose --profile dev down
 ```
 
 Delete the database and persisted server data:
 
 ```bash
-docker compose down -v
+docker compose --profile dev down -v
 ```
 
 ## Troubleshooting
@@ -177,5 +181,24 @@ host machine. The quickstart uses these TCP ports:
 - `8080`
 - `8088`
 
-If the first start is slow, wait for the map download and MyAAC build to finish.
-Later starts are faster because Docker reuses downloaded data and images.
+If the first start is slow, wait for the MyAAC build to finish. Later starts are
+faster because Docker reuses downloaded images and build cache.
+
+## Production Image
+
+The immutable `prod` profile is intended for managed deployments, not the first
+local setup. It packages the tracked configuration, map, XML, and Lua into one
+image with no host bind mounts:
+
+```bash
+sh ./up.sh --prod
+```
+
+On Windows PowerShell:
+
+```powershell
+.\up.ps1 -Prod
+```
+
+Production still requires replacing default passwords, disabling test accounts,
+pinning image tags, and reviewing all published ports.

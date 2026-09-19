@@ -2,6 +2,7 @@ param(
 	[switch]$NoBuild,
 	[switch]$SkipCleanup,
 	[switch]$Lan,
+	[switch]$Prod,
 	[string]$CleanupUntil = "168h"
 )
 
@@ -140,15 +141,28 @@ if (-not (Test-Path -LiteralPath ".env")) {
 	Write-Host "Created docker/.env from docker/.env.dist."
 }
 
-$canaryConfigPath = Join-Path $PSScriptRoot "..\config.lua"
 $canaryConfigDistPath = Join-Path $PSScriptRoot "..\config.lua.dist"
-if (-not (Test-Path -LiteralPath $canaryConfigPath)) {
+if ($Prod) {
+	if ($Lan) {
+		Stop-WithMessage "LAN auto-configuration is available only with the dev profile."
+	}
 	if (-not (Test-Path -LiteralPath $canaryConfigDistPath)) {
 		Stop-WithMessage "Missing config.lua.dist. Run this script from the docker directory in a complete Canary checkout."
 	}
-	Copy-Item -LiteralPath $canaryConfigDistPath -Destination $canaryConfigPath
-	Write-Host "Created config.lua from config.lua.dist."
+	$profile = "prod"
+	$canaryConfigPath = $canaryConfigDistPath
+} else {
+	$profile = "dev"
+	$canaryConfigPath = Join-Path $PSScriptRoot "..\config.lua"
+	if (-not (Test-Path -LiteralPath $canaryConfigPath)) {
+		if (-not (Test-Path -LiteralPath $canaryConfigDistPath)) {
+			Stop-WithMessage "Missing config.lua.dist. Run this script from the docker directory in a complete Canary checkout."
+		}
+		Copy-Item -LiteralPath $canaryConfigDistPath -Destination $canaryConfigPath
+		Write-Host "Created config.lua from config.lua.dist."
+	}
 }
+$env:COMPOSE_PROFILES = $profile
 
 $serverName = Get-LuaStringValue -Path $canaryConfigPath -Name "serverName"
 $dataPack = Get-LuaStringValue -Path $canaryConfigPath -Name "dataPackDirectory"
@@ -160,6 +174,7 @@ if (-not $dataPack) {
 }
 Set-EnvValue -Path ".env" -Name "CANARY_SERVER_NAME" -Value $serverName
 Set-EnvValue -Path ".env" -Name "CANARY_DATA_PACK" -Value $dataPack
+$builder = Get-EnvValue -Path ".env" -Name "CANARY_BUILDER" -DefaultValue "limited-builder"
 
 if ($Lan) {
 	$lanIp = Get-PrimaryLanIPv4
@@ -175,12 +190,25 @@ if ($Lan) {
 
 $projectName = if ($env:COMPOSE_PROJECT_NAME) { $env:COMPOSE_PROJECT_NAME } else { "otbr" }
 
-$composeArgs = @("compose", "up", "-d", "--remove-orphans")
 if (-not $NoBuild) {
-	$composeArgs += "--build"
+	& docker buildx inspect $builder > $null 2> $null
+	if ($LASTEXITCODE -ne 0) {
+		Stop-WithMessage "Docker buildx builder '$builder' is not available. Create or select the resource-limited builder before building."
+	}
+
+	& docker compose --profile $profile build --builder $builder
+	if ($LASTEXITCODE -ne 0) {
+		exit $LASTEXITCODE
+	}
 }
 
-& docker @composeArgs
+if ($profile -eq "prod") {
+	& docker compose --profile dev stop server myaac > $null 2> $null
+} else {
+	& docker compose --profile prod stop server-prod myaac-prod > $null 2> $null
+}
+
+& docker compose --profile $profile up -d --no-build --remove-orphans
 if ($LASTEXITCODE -ne 0) {
 	exit $LASTEXITCODE
 }

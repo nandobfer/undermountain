@@ -6,14 +6,14 @@ set -euo pipefail
 : "${CANARY_DB_NAME:=canary}"
 : "${CANARY_DB_USER:=canary}"
 : "${CANARY_DB_PASSWORD:=canary}"
-: "${CANARY_SERVER_NAME:=OpenTibiaBR Canary}"
+: "${CANARY_SERVER_NAME:=Undermountain}"
 : "${CANARY_SERVER_IP:=127.0.0.1}"
 : "${CANARY_SERVER_LOCATION:=BRA}"
 : "${CANARY_LOGIN_PORT:=7171}"
 : "${CANARY_GAME_PORT:=7172}"
 : "${CANARY_STATUS_PORT:=7173}"
 : "${CANARY_STATUS_TIMEOUT:=5000}"
-: "${CANARY_DATA_PACK:=data-otservbr-global}"
+: "${CANARY_DATA_PACK:=data-canary}"
 
 escape_lua() {
 	printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'

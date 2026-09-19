@@ -14,7 +14,8 @@ references in the surrounding subdirectories:
 | [`README.md`](README.md)                  | Project overview and documentation index                            |
 | [`architecture.md`](architecture.md)      | System design, components and technical architecture                 |
 | [`development.md`](development.md)        | Development environment, coding standards and contribution workflow  |
-| [`operations.md`](operations.md)          | Deployment, monitoring, security, backups and production operations  |
+| [`operations.md`](operations.md) | Deployment, monitoring, security, backups and production operations  |
+| [`undermountain-architecture-and-stack.md`](undermountain-architecture-and-stack.md) | Undermountain-specific architecture, stack boundaries, and decisions |
 | [`building/recompile.md`](building/recompile.md) | Linux recompilation, executable history, crash analysis and WSL validation |
 | [`hardware-sizing.md`](hardware-sizing.md) | RAM/CPU estimates, player activity and hardware capacity planning |
 | [`systems/content-reference-auditor.md`](systems/content-reference-auditor.md) | Profile-aware gameplay content and identifier auditing |
@@ -24,6 +25,9 @@ references in the surrounding subdirectories:
 # What is Canary?
 
 Canary is a modern MMORPG server engine that evolved from the OTServBR ecosystem. The project aims to provide a clean, maintainable, and extensible codebase that supports both custom game projects and OpenTibia-based servers. The repository includes support for multiple datapacks, Lua scripting, database persistence, a Docker quickstart for local testing, automated testing and observability tooling.
+
+This fork's product-specific decisions are recorded in the
+[Undermountain Architecture and Stack Decision](undermountain-architecture-and-stack.md).
 
 Key characteristics:
 
@@ -283,6 +287,7 @@ Before contributing:
 | DevOps Engineer      | README → Operations                 |
 | Server Administrator | README → Operations                 |
 | Technical Lead       | README → Architecture → Operations  |
+| Undermountain Contributor | README → Undermountain Decision → Development |
 
 ---
 

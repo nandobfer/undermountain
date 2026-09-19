@@ -55,6 +55,11 @@ Canary
 └── Reverse Proxy
 ```
 
+The Undermountain fork uses a defined topology with uniform Git-backed content
+mounts, a permanent Go login-server, and a Next.js website. See the
+[Undermountain Architecture and Stack Decision](undermountain-architecture-and-stack.md)
+before changing its deployment or service boundaries.
+
 ---
 
 # Environment Types
@@ -111,11 +116,12 @@ Requirements:
 
 ## Docker Quickstart
 
-Recommended for local development, local testing and LAN demos.
+The Compose stack provides explicit `dev` and `prod` profiles.
 
 Canary provides a Docker Compose quickstart including:
 
-* Canary from the published runtime image
+* Canary from the published runtime image with read-only content mounts in `dev`
+* An immutable engine-and-content Canary image in `prod`
 * MariaDB
 * MyAAC as website/admin AAC
 * `opentibiabr/login-server` as the client login webservice
@@ -126,11 +132,12 @@ Startup:
 ```bash
 cd docker
 cp .env.dist .env
-docker compose up -d --build
+sh ./up.sh
 ```
 
-The `--build` flag builds the MyAAC quickstart image. It does not compile
-Canary locally.
+The launcher builds with the resource-limited buildx builder and starts Compose
+with `--no-build`. Use `sh ./up.sh --prod` for the immutable production image.
+Content-only production builds do not compile C++.
 
 Default exposed endpoints and ports:
 
@@ -143,10 +150,11 @@ Canary status protocol:   7173
 Login-server gRPC:        9090
 ```
 
-The quickstart is not a hardened production deployment with default settings.
-Before using it outside a trusted local network, change all default passwords,
-disable or remove test accounts, review published ports, and pin image tags.
-For the full contract, see `docker/DOCKER.md`.
+The `prod` profile removes content bind mounts, but defaults are not hardened.
+Before public use, change all passwords, disable test accounts, review published
+ports, and pin both engine and production image tags. Rollback selects the
+previous immutable `CANARY_PROD_IMAGE`. For the full contract, see
+`docker/DOCKER.md`.
 
 ---
 

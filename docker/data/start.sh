@@ -5,7 +5,7 @@ CANARY_DB_PORT="${CANARY_DB_PORT:-3306}"
 CANARY_DB_USER="${CANARY_DB_USER:-canary}"
 CANARY_DB_PASSWORD="${CANARY_DB_PASSWORD:-canary}"
 CANARY_DB_NAME="${CANARY_DB_NAME:-canary}"
-CANARY_SERVER_NAME="${CANARY_SERVER_NAME:-OpenTibiaBR Canary}"
+CANARY_SERVER_NAME="${CANARY_SERVER_NAME:-Undermountain}"
 CANARY_SERVER_IP="${CANARY_SERVER_IP:-127.0.0.1}"
 CANARY_LOGIN_PORT="${CANARY_LOGIN_PORT:-7171}"
 CANARY_GAME_PORT="${CANARY_GAME_PORT:-7172}"
@@ -14,12 +14,11 @@ CANARY_LEGACY_860_GAME_PORT="${CANARY_LEGACY_860_GAME_PORT:-7175}"
 CANARY_STATUS_PORT="${CANARY_STATUS_PORT:-7173}"
 CANARY_STATUS_TIMEOUT="${CANARY_STATUS_TIMEOUT:-5000}"
 CANARY_TEST_ACCOUNTS="${CANARY_TEST_ACCOUNTS:-false}"
-CANARY_DATA_PACK="${CANARY_DATA_PACK:-data-otservbr-global}"
-CANARY_MAP_URL="${CANARY_MAP_URL:-https://github.com/opentibiabr/canary/releases/download/v3.6.1/otservbr.otbm}"
-CANARY_MAP_NAME="otservbr"
-CANARY_DOWNLOAD_MAP="true"
+CANARY_DATA_PACK="data-canary"
+CANARY_MAP_URL=""
+CANARY_MAP_NAME="canary"
+CANARY_DOWNLOAD_MAP="false"
 CANARY_CONFIG_PATH="${CANARY_CONFIG_PATH:-}"
-CANARY_CONFIG_FROM_HOST="false"
 
 validate_identifier() {
 	local name="$1"
@@ -105,16 +104,36 @@ if [ -n "$CANARY_CONFIG_PATH" ]; then
 	fi
 
 	cp "$CANARY_CONFIG_PATH" config.lua
-	CANARY_CONFIG_FROM_HOST="true"
-	CANARY_DATA_PACK="$(get_lua_string "dataPackDirectory")"
-	CANARY_MAP_URL="$(get_lua_string "mapDownloadUrl")"
-	CANARY_MAP_NAME="$(get_lua_string "mapName")"
-	CANARY_DOWNLOAD_MAP="$(get_lua_boolean "toggleDownloadMap")"
+fi
 
-	if [ -z "$CANARY_DATA_PACK" ] || [ -z "$CANARY_MAP_NAME" ] || [ -z "$CANARY_DOWNLOAD_MAP" ]; then
-		echo "Host config must define dataPackDirectory, mapName, and toggleDownloadMap" >&2
-		exit 1
-	fi
+CANARY_DATA_PACK="$(get_lua_string "dataPackDirectory")"
+CANARY_MAP_URL="$(get_lua_string "mapDownloadUrl")"
+CANARY_MAP_NAME="$(get_lua_string "mapName")"
+CANARY_DOWNLOAD_MAP="$(get_lua_boolean "toggleDownloadMap")"
+
+if [ -z "$CANARY_DATA_PACK" ] || [ -z "$CANARY_MAP_NAME" ] || [ -z "$CANARY_DOWNLOAD_MAP" ]; then
+	echo "Canary config must define dataPackDirectory, mapName, and toggleDownloadMap" >&2
+	exit 1
+fi
+
+if [ "$CANARY_DATA_PACK" != "data-canary" ]; then
+	echo "Undermountain requires dataPackDirectory = \"data-canary\"" >&2
+	exit 1
+fi
+
+if [ "$CANARY_DOWNLOAD_MAP" != "false" ]; then
+	echo "Undermountain requires toggleDownloadMap = false; maps must be versioned with the datapack" >&2
+	exit 1
+fi
+
+if [ ! -d "data" ]; then
+	echo "Mounted core data directory not found: /canary/data" >&2
+	exit 1
+fi
+
+if [ ! -d "$CANARY_DATA_PACK" ]; then
+	echo "Configured datapack directory not found: /canary/$CANARY_DATA_PACK" >&2
+	exit 1
 fi
 
 mysqldump_cmd() {
@@ -169,26 +188,11 @@ echo "===== Ensure Configured Map ====="
 echo ""
 
 map_path="${CANARY_DATA_PACK}/world/${CANARY_MAP_NAME}.otbm"
-if [ "$CANARY_DOWNLOAD_MAP" = "true" ] && [ ! -f "$map_path" ]; then
-	if [ -z "$CANARY_MAP_URL" ]; then
-		echo "Map download is enabled but mapDownloadUrl is empty" >&2
-		exit 1
-	fi
-
-	echo "Downloading ${CANARY_MAP_NAME}.otbm..."
-	tmp_map="${map_path}.tmp"
-	rm -f "$tmp_map"
-	if ! curl --fail --show-error --location \
-		--connect-timeout 5 --max-time 180 \
-		"$CANARY_MAP_URL" -o "$tmp_map"; then
-		rm -f "$tmp_map"
-		exit 1
-	fi
-	mv "$tmp_map" "$map_path"
-	echo "Done"
-else
-	echo "Map download skipped"
+if [ ! -f "$map_path" ]; then
+	echo "Versioned map not found: /canary/$map_path" >&2
+	exit 1
 fi
+echo "Using versioned map: $map_path"
 
 echo ""
 echo "================================"
@@ -291,31 +295,11 @@ set_lua_number "legacy860GameProtocolPort" "$CANARY_LEGACY_860_GAME_PORT"
 set_lua_number "statusProtocolPort" "$CANARY_STATUS_PORT"
 set_lua_number "statusTimeout" "$CANARY_STATUS_TIMEOUT"
 
-if [ "$CANARY_CONFIG_FROM_HOST" != "true" ]; then
-	set_lua_string "serverName" "$CANARY_SERVER_NAME"
-	set_lua_string "dataPackDirectory" "$CANARY_DATA_PACK"
-	set_lua_string "mapDownloadUrl" "$CANARY_MAP_URL"
-fi
-
 echo "config.lua updated"
 
 echo ""
 echo "================================"
 echo ""
-
-if [ -d "/data/server/" ]; then
-	echo ""
-	echo "===== Copy Server Configuration And Data Pack To Shared Folder ====="
-	echo ""
-
-	cp config.lua /data/server/
-	cp -r data/ /data/server/
-	cp -r "$CANARY_DATA_PACK"/ /data/server/
-
-	echo ""
-	echo "================================"
-	echo ""
-fi
 
 echo ""
 echo "===== Start Server ====="

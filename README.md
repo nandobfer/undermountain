@@ -18,23 +18,17 @@ Canary is a free and open-source MMORPG server emulator for the OpenTibia commun
 
 ## Docker Quickstart
 
-Canary includes a lightweight Docker quickstart for running a local test server
-without compiling Canary locally. The stack starts MariaDB, the published Canary
-runtime image, MyAAC as the website/admin AAC, and `opentibiabr/login-server` as
-the client login webservice.
+The Undermountain Docker stack provides a `dev` profile with read-only content
+mounts and a `prod` profile with one immutable engine-and-content image. Both
+start MariaDB, MyAAC during the Next.js transition, and
+`opentibiabr/login-server`.
 
 This quickstart is for local development, testing, and LAN demos. Do not expose
 it directly to the public Internet with the default test accounts and passwords.
 
-Run from the `docker` directory:
-
-```bash
-cp .env.dist .env
-docker compose up -d --build
-```
-
-The `docker` directory also provides guarded start scripts that start the stack
-and clean safe Docker leftovers without removing database volumes:
+Run the guarded development launcher from the `docker` directory. It routes all
+builds through the resource-limited buildx builder and preserves database
+volumes:
 
 ```powershell
 .\up.ps1
@@ -43,6 +37,12 @@ and clean safe Docker leftovers without removing database volumes:
 ```bash
 sh ./up.sh
 ```
+
+Use `sh ./up.sh --prod` or `.\up.ps1 -Prod` to build and start the immutable
+production profile.
+
+The generated `docker/.env` selects `dev` by default, so a direct
+`docker compose up -d --no-build` starts the complete development stack.
 
 Default local endpoints:
 

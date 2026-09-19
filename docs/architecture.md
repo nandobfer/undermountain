@@ -6,6 +6,10 @@ Canary is an open-source MMORPG server emulator for Tibia-based games, developed
 
 The project follows a layered architecture that separates networking, game logic, persistence, scripting, and tooling. This design allows server developers to customize game behavior without modifying the core engine while maintaining scalability and performance.
 
+This guide describes the inherited Canary engine architecture. See the
+[Undermountain Architecture and Stack Decision](undermountain-architecture-and-stack.md)
+for this fork's service topology, content mounts, and ownership boundaries.
+
 ---
 
 # High-Level Architecture
@@ -512,29 +516,28 @@ Located under:
 docker/
 ```
 
-Local Docker quickstart stack:
+Undermountain Docker profiles:
 
 ```text
-┌──────────────────────────────┐
-│ MariaDB                      │
-└───────────────┬──────────────┘
-                │
-┌───────────────▼──────────────┐
-│ Canary runtime image         │
-│ data-otservbr-global default │
-└───────────────┬──────────────┘
-                │
-       ┌────────┴─────────┐
-       ▼                  ▼
-┌────────────┐    ┌────────────────┐
-│ MyAAC      │    │ login-server   │
-│ website    │    │ client login   │
-└────────────┘    └────────────────┘
+dev:  engine image + read-only config.lua/data/data-canary mounts
+prod: immutable engine + config.lua.dist + data + data-canary image
+                           │
+                     ┌─────▼─────┐
+                     │ MariaDB   │
+                     └─────┬─────┘
+                           │
+              ┌────────────┴────────────┐
+              ▼                         ▼
+       ┌────────────┐            ┌────────────────┐
+       │ MyAAC      │            │ login-server   │
+       │ temporary  │            │ client login   │
+       └────────────┘            └────────────────┘
 ```
 
-This enables local development, local testing and LAN demos without compiling
-Canary locally. It is not the production deployment model with default settings;
-see `docker/DOCKER.md` for the quickstart contract.
+Development content changes require only a restart. Production content changes
+build a new lightweight immutable image without recompiling C++. Default
+credentials are not production-safe; see `docker/DOCKER.md` for the full
+contract.
 
 ---
 

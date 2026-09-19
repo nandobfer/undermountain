@@ -31,6 +31,11 @@ The global Git, commit, PR, C++ header, exception, and documentation policies ap
 - Before an authorized local build, read `docs/building/local-validation.md`; its maintained entry-point, environment, preset, cache, and MSVC Ninja workflow is mandatory.
 - C++ source/header additions, removals, and renames must update every maintained entry: the relevant CMake list, server `vcproj/canary.vcxproj`, and test CMake list when applicable.
 
+### Docker build resource limits
+
+- Every local Docker build must use the buildx builder configured by `CANARY_BUILDER` (`limited-builder` on this host). Run `docker compose build --builder "$CANARY_BUILDER"` separately, then `docker compose up --no-build`; never use `docker compose up --build`.
+- Before building, verify the builder exists with `docker buildx inspect "$CANARY_BUILDER"`. CI may explicitly select its runner-provided `default` builder.
+
 ### MSVC Ninja dependency tracking
 
 - Before configuring, repairing, or auditing an MSVC Ninja build, read `docs/building/local-validation.md#msvc-ninja-dependency-tracking`. Its code-page, launcher, dependency-log, and concurrency rules remain mandatory.
